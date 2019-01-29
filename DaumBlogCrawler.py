@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[15]:
+# In[9]:
 
 
 from selenium import webdriver
@@ -13,19 +13,36 @@ import datetime
 import pymysql
 
 
-# In[16]:
+# In[10]:
+
+
+def createDB(conn,dbname):
+    curs = conn.cursor()
+    query = """CREATE DATABASE """+dbname
+    try :
+        curs.execute(query)
+    except :
+        print('DB가 이미 존재합니다. DB_NAME : ',dbname)
+    
+    query = """ALTER DATABASE """+ dbname + """ CHARACTER SET utf8 COLLATE utf8_general_ci;"""
+    curs.execute(query)
+    conn.commit()
+
+
+# In[11]:
 
 
 def save_DB(total_list) : 
-    conn = pymysql.connect(host = "147.43.122.131", user = "root", password = "1234", charset = "utf8mb4")
+    conn = pymysql.connect(host = "", user = "root", password = "", charset = "utf8")
+    dbname = 'daum_blog_'+ keyword
+    createDB(conn,dbname)
     curs = conn.cursor()
-    
-    curs.execute("use daum_blog ;")
+    curs.execute("""use """+dbname)
 
     query = """CREATE TABLE IF NOT EXISTS """+ keyword+ """(ID int, URL varchar(100), Title varchar(100), Date varchar(20), Writer varchar(50), blog_like int, Count int,Text longtext);"""
     curs.execute(query)
 
-    query = """ALTER TABLE """ + keyword +""" CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"""
+    query = """ALTER TABLE """ + keyword +""" CHARACTER SET utf8 COLLATE utf8_general_ci;"""
     curs.execute(query)
 
     conn.commit()
@@ -53,7 +70,7 @@ def save_DB(total_list) :
     print("FINISH")
 
 
-# In[17]:
+# In[12]:
 
 
 keyword = input("Keyword ? ")
@@ -70,11 +87,26 @@ start_date = start_year+start_month+start_day
 end_date = end_year+end_month+end_day
 
 
+# In[16]:
+
+
+import re
+
+INVISIBLE_ELEMS = ('style', 'script', 'head', 'title')
+RE_SPACES = re.compile(r'\s{3,}')
+
+def visible_texts(soup):
+    text = ' '.join([
+        s for s in soup.strings
+        if s.parent.name not in INVISIBLE_ELEMS
+    ])
+
+    return RE_SPACES.sub('  ', text)
+
+
 # In[18]:
 
 
-options = webdriver.ChromeOptions()
-options.add_argument('headless')
 dt_start_date = datetime.datetime.strptime(start_date,"%Y%m%d").date()
 dt_end_date = datetime.datetime.strptime(end_date,"%Y%m%d").date()
 day_1 = datetime.timedelta(days=1)
@@ -96,9 +128,7 @@ while dt_start_1 <= dt_end_date :
         soup = BeautifulSoup(driver.page_source,'html.parser')
         span_tags = soup.findAll("span", {"class" : "f_nb date"})
         a_tags = driver.find_elements_by_xpath("//a[@class='f_link_b']")
-        
-        element = soup.find("span",{"class" : "btn_page btn_next"})
-            
+
         # 한 페이지에 있는 링크들 전부 가져오기
         for a,d in zip(a_tags,span_tags) :
             url = a.get_attribute("href")
@@ -111,10 +141,18 @@ while dt_start_1 <= dt_end_date :
                 driver.switch_to_frame(frame)
                 soup = BeautifulSoup(driver.page_source,'html.parser')
                 
-                blog_title = soup.find("strong", {"class" : "cB_Title cB_TitleImage"}).text.replace('\n','').strip()
+                blog_title = soup.find("strong", {"class" : "cB_Title cB_TitleImage"}).text.replace('\n','').strip().encode('cp949','ignore')
+                blog_title = blog_title.decode('cp949','ignore')
+                print(blog_title)   
                 blog_date = d.text
+                print(blog_date)  
                 writer = soup.find("span", {"class" : "cB_Name"}).text
-                reply_count = driver.find_element_by_css_selector('#cContentBottom > div > ul > li').text.strip()[3:]
+                print(writer)  
+                try :
+                    reply_count = driver.find_element_by_css_selector('#cContentBottom > div > ul > li').text.strip()[3:]
+                except :
+                    reply_count = 0
+                print(reply_count)  
                 # 페이지 변환 
                 frame = driver.find_element_by_css_selector('#cContentBody > div > iframe')
                 driver.switch_to_frame(frame)
@@ -128,16 +166,20 @@ while dt_start_1 <= dt_end_date :
                         blog_like = 0
                 else :
                     blog_like = 0
-                    
-                blog_content = soup.find("div", {"id" : "contentDiv"}).text.replace('\n','').strip()
-
-                total_list.append([url,blog_title,blog_date,writer,blog_like,reply_count,blog_content])
+                print(blog_like)  
                 
+                blog_content = visible_texts(soup.find("div", {"id" : "contentDiv"})).strip()
+                blog_content = blog_content.encode('cp949','ignore')
+                blog_content = blog_content.decode('cp949','ignore')
+                print(blog_content)
+                total_list.append([url,blog_title,blog_date,writer,blog_like,reply_count,blog_content])
         # daum blog는 다음 버튼이 활성화일땐 a태그, 비활성화일땐 span태그가 페이지에 나타나도록 설계되어있음
-        if element is None :
+        try :
+            driver.find_elements_by_xpath("//div[@id='pagingArea']/span[1]/a[@class='ico_comm1 btn_page btn_next']").click()
             page_num += 1
-        else : 
+        except :
             break;
+
             
      # 날짜 변환    
     dt_start_1 = dt_start_1 + day_1
@@ -147,10 +189,10 @@ while dt_start_1 <= dt_end_date :
     save_DB(total_list)
 
 
-# In[19]:
+# In[ ]:
 
 
-# conn = pymysql.connect(host = "", user = "root", password = "", charset = "utf8mb4")
+# conn = pymysql.connect(host = "", user = "root", password = "", charset = "utf8")
 # curs = conn.cursor()
 # curs.execute("use daum_blog ;")
 # query = """select * from 원자력; """
@@ -163,18 +205,8 @@ while dt_start_1 <= dt_end_date :
 # In[ ]:
 
 
-# DB 생성시 이용
-# conn = pymysql.connect(host = "", user = "root", password = "", charset = "utf8mb4")
-# curs = conn.cursor()
-# query = """CREATE DATABASE daum_blog default CHARACTER SET UTF8;"""
-# curs.execute(query)
-
-
-# In[ ]:
-
-
 # DB삭제시 이용
-# conn = pymysql.connect(host = "", user = "root", password = "", charset = "utf8mb4")
+# conn = pymysql.connect(host = "", user = "root", password = "", charset = "utf8")
 # curs = conn.cursor()
 # query = """DROP DATABASE daum_blog; """
 # curs.execute(query)
